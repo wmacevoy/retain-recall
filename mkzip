@@ -1,0 +1,14 @@
+#!/bin/bash
+
+make clean
+svn update
+REPOSITORY=${PWD##*/}
+REVISION=`svn info | grep "Revision: " | sed -e 's/Revision: \(.*\)/\1/'`
+TMPDIR=`mktemp -d /tmp/zipXXXXXX`
+mkdir "$TMPDIR/$REPOSITORY-r$REVISION"
+tar --no-recursion -cf - $(find . \( \( ! -name '.?*' \) -o  \( -prune -a ! -prune \) \)) | tar -C "$TMPDIR/$REPOSITORY-r$REVISION" -xvf -
+( cd $TMPDIR; zip -r "$REPOSITORY-r$REVISION.zip" "$REPOSITORY-r$REVISION" )
+cp "$TMPDIR/$REPOSITORY-r$REVISION.zip" ..
+/bin/rm -rf $TMPDIR
+echo  "../$REPOSITORY-r$REVISION.zip"
+
