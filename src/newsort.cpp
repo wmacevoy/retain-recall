@@ -23,12 +23,12 @@ public:
   virtual ~Sortable() {};
 };
 
-extern "C" int compare(int i,int j)
+extern "C" int compare(size_t i,size_t  j)
 {
-  recall<Sortable>()->compare(i,j); // ***
+  return recall<Sortable>()->compare(i,j); // ***
 }
 
-extern "C" void swap(int i, int j)
+extern "C" void swap(size_t i, size_t j)
 {
   recall<Sortable>()->swap(i,j); // ***
 }

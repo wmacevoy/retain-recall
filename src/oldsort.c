@@ -24,7 +24,7 @@ int main()
   sort(0,5);
 
   for (i=0; i<5; ++i) {
-    printf("a[%d]=%lg\n",i,a[i]);
+    printf("a[%zu]=%lg\n",i,a[i]);
   }
 
   return 0;

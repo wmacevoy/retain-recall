@@ -25,7 +25,7 @@ int main()
  midi_channel_info mci;
  mci.error_code=0;
  mci.channel_id=0;
- auto retain<midi_channel_info> as(&mci);
+ retain<midi_channel_info> as(&mci);
  use_midi();
  if (mci.error_code == 0) { /* ... */ }
 }

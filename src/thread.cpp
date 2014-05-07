@@ -36,6 +36,7 @@ void Thread::join()
 static void *ThreadRun(void *arg)
 {
   ((Thread*)arg)->run();
+  return 0;
 }
 
 Thread::Thread()

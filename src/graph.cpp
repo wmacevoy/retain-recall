@@ -61,23 +61,22 @@ int main()
 {
   Graph g;
   Graph h;
+  Graph::Node a("a"),b("b"),c("c"),d("d");
 
   { 
     retain<Graph> as(&g); // ***
-    Graph::Node a("a"),b("b"),c("c"),d("d");
 
     // without retain...recall, the following would be written as:
     // g.edge(a,b);
     // g.edge(b,c);
     // g.edge(a,d);
-    // g.dege(d,a);
+    // g.edge(d,a);
     
     (a-b-c,a-d,d-a); // directed chains in g
   }
 
   {
     retain<Graph> as(&h); // ***
-    Graph::Node a("a"),b("b"),c("c");
 
     (a-b,c-a); // directed chains in h
   }
