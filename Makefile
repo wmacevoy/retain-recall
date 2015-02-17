@@ -4,6 +4,8 @@ LDFLAGS=-lpthread
 JAVA=java
 JAVAC=javac
 
+#added a comment here
+
 all : libs bins java
 libs : lib/libsort.a
 bins : bin/midi1 bin/midi2 bin/test bin/oldsort bin/newsort bin/pool bin/graph bin/i18n bin/logging bin/profile bin/checkpoint
