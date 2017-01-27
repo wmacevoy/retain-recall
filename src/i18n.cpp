@@ -74,7 +74,7 @@ void hello()
   greet();
 }
 
-void ohla()
+void hola()
 {
   retain<Language> as(&SPANISH_LANGUAGE); // ***
   greet();
@@ -88,7 +88,7 @@ int main(int argc, char *argv[])
     if (strcmp(argv[argi],"spanish")==0) { spanish(); continue; }
     if (strcmp(argv[argi],"greet")==0) { greet(); continue; }
     if (strcmp(argv[argi],"hello")==0) { hello(); continue; }
-    if (strcmp(argv[argi],"ohla")==0) { ohla(); continue; }
+    if (strcmp(argv[argi],"hola")==0) { hola(); continue; }
     std::cout << 
       "unkown arg[" << argi << "]='" << argv[argi] << "'" << std::endl;
   }
