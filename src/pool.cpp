@@ -1,7 +1,7 @@
 #include <iostream>
 #include <string>
 #include <set>
-#include <stdlib.h>
+#include <cstdlib>
 #include "retain.hpp"
 
 //
@@ -12,29 +12,28 @@ class Pooled;
 
 struct Pool
 {
-  typedef std::set<Pooled*> Contents;
-  Contents contents;
-  ~Pool();
+    typedef std::set<Pooled*> Contents;
+    Contents contents;
+    ~Pool();
 };
 
 struct Pooled {
-  void *operator new(size_t size)
-  {
-    void *at = malloc(size);
-    if (at == 0) throw std::bad_alloc();
-    recall<Pool>()->contents.insert((Pooled*)at);
-    return at;
-  }
-  virtual ~Pooled() {
-    std::cout << "destroying Pooled@" << ((void*) this) << std::endl;
-  }
+    void *operator new(size_t size)
+    {
+        void *at = malloc(size);
+        if (at == nullptr) throw std::bad_alloc();
+        recall<Pool>()->contents.insert((Pooled*)at);
+        return at;
+    }
+    virtual ~Pooled() {
+        std::cout << "destroying Pooled@" << ((void*) this) << std::endl;
+    }
 };
 
-Pool::~Pool() 
-{  
-  for (Contents::iterator i=contents.begin(); i != contents.end(); ++i)
-    {
-      delete *i;
+Pool::~Pool()
+{
+    for (auto *p : contents) {
+        delete p;
     }
 }
 
@@ -43,30 +42,30 @@ Pool::~Pool()
 //
 
 struct Thing : public Pooled {
-  std::string m_name;
-  Thing(const std::string &name) : m_name(name) {}
-  ~Thing() {
-    std::cout << "destroying Thing@" << ((void*) this) << " name=" << m_name << std::endl;
-  }
+    std::string m_name;
+    Thing(const std::string &name) : m_name(name) {}
+    ~Thing() {
+        std::cout << "destroying Thing@" << ((void*) this)
+                  << " name=" << m_name << std::endl;
+    }
 };
 
 
 int main() {
-  
-  Pool apples;
-  Pool oranges;
 
-  { retain<Pool> as(&apples);
-    
-    new Thing("jona gold");
-    new Thing("braeburn");
-  } 
+    Pool apples;
+    Pool oranges;
 
-  { retain<Pool> as(&oranges);
-    new Thing("naval");
-    new Thing("blood");
-  }
+    { retain<Pool> as(&apples);
 
-  return 0;
+        new Thing("jona gold");
+        new Thing("braeburn");
+    }
 
+    { retain<Pool> as(&oranges);
+        new Thing("naval");
+        new Thing("blood");
+    }
+
+    return 0;
 }

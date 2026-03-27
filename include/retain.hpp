@@ -1,130 +1,78 @@
 #pragma once
 
-
-#ifdef RETAIN_SINGLE_THREADED
-
-template <typename T>
-class retain_thread_local_storage
-{
-private: static T* m_value;
-public: static inline T* get() { return m_value; }
-public: static inline void set(T* value) { m_value=value; }
-};
-
-template <typename T>
-T* retain_thread_local_storage<T>::m_value = 0;
-
-#else
-
-#include <new>
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <pthread.h>
-#endif
-
-template <typename T>
-class retain_thread_local_storage
-{
-#ifdef _WIN32
-private: typedef DWORD key_t;
-#else
-private: typedef pthread_key_t key_t;
-#endif
-
-private: static key_t s_key;
-private: static key_t key_init()
-  {
-#ifdef _WIN32
-    if ((s_key = TlsAlloc()) == TLS_OUT_OF_INDEXES) 
-      throw std::bad_alloc();
-#else
-    if (pthread_key_create(&s_key,0) != 0) 
-      throw std::bad_alloc();
-#endif
-    return s_key;
-  }
-
-public: static inline T* get() 
-  {
-#ifdef _WIN32
-    return (T*) TlsGetValue(s_key);
-#else
-    return (T*) pthread_getspecific(s_key);
-#endif
-  }
-
-public: static inline void set(T* value) 
-  {
-#ifdef _WIN32
-    TlsSetValue(s_key,value);
-#else
-    pthread_setspecific(s_key,value);
-#endif
-  }
-};
-
-template <typename T> typename retain_thread_local_storage<T>::key_t retain_thread_local_storage<T>::s_key = retain_thread_local_storage<T>::key_init();
-
-#endif
+//
+// retain/recall semantics — C++17
+//
+// A retain<T> object is an automatic (stack-scoped) variable that publishes
+// a pointer to T on a thread-local stack.  recall<T>() retrieves the most
+// recently retained T* from the current thread.  When the retain<T> goes
+// out of scope its destructor pops the stack — classic RAII tied to the
+// lifetime of an auto variable.
+//
+// Before C++11 repurposed the keyword, "auto" was the storage-class
+// specifier for automatic (stack) variables — the very lifetime model
+// that makes retain/recall work.  That meaning is worth remembering.
+//
 
 template <typename T>
 class retain
 {
-public: typedef retain_thread_local_storage< retain< T > > TLS;
-private: retain<T> *m_previous;
-private: T* m_as;
-public: retain(T* as, bool use=true)
-  {
-    m_as = as;
-    m_previous=TLS::get();
-    if (use) TLS::set(this);
-  }
+private:
+    static inline thread_local retain<T>* s_current = nullptr;
 
-public: ~retain()
-  {
-    if (TLS::get() == this) TLS::set(m_previous);
-  }
-  
-public: class iterator 
-  {
-  private: retain<T> *m_at;
-  public: iterator(retain<T> *at=0) : m_at(at) {};
-  public: void operator++() { m_at=m_at->m_previous; }
-  public: bool operator==(const iterator &to) const { return m_at==to.m_at; }
-  public: bool operator!=(const iterator &to) const { return m_at!=to.m_at; }
-  public: T& operator*() { return *m_at->m_as; }
-  public: T* operator->() { return m_at->m_as; }
-  };
+    retain<T>* m_previous;
+    T* m_as;
 
-  public: T& operator*() { return *m_as; }
-  public: T* operator->() { return m_as; }
+public:
+    retain(T* as, bool use = true)
+        : m_previous(s_current), m_as(as)
+    {
+        if (use) s_current = this;
+    }
 
-public: static iterator begin()
-  {
-    return iterator(TLS::get());
-  }
+    ~retain()
+    {
+        if (s_current == this) s_current = m_previous;
+    }
 
-public: static iterator end()
-  {
-    return iterator(0);
-  }
+    // Tied to stack frame — not copyable or movable
+    retain(const retain&) = delete;
+    retain& operator=(const retain&) = delete;
 
-  template <typename TT>
-  friend TT*& recall();
+    T& operator*() { return *m_as; }
+    T* operator->() { return m_as; }
 
-  template <typename TT>
-  friend bool retained();
+    class iterator
+    {
+    private:
+        retain<T>* m_at;
+    public:
+        iterator(retain<T>* at = nullptr) : m_at(at) {}
+        void operator++() { m_at = m_at->m_previous; }
+        bool operator==(const iterator& to) const { return m_at == to.m_at; }
+        bool operator!=(const iterator& to) const { return m_at != to.m_at; }
+        T& operator*() { return *m_at->m_as; }
+        T* operator->() { return m_at->m_as; }
+    };
+
+    static iterator begin() { return iterator(s_current); }
+    static iterator end() { return iterator(nullptr); }
+
+    template <typename TT>
+    friend TT*& recall();
+
+    template <typename TT>
+    friend bool retained();
 };
 
 template <typename T>
 inline bool retained()
 {
-  return retain<T>::TLS::get() != 0;
+    return retain<T>::s_current != nullptr;
 }
 
 template <typename T>
 inline T*& recall()
 {
-  return retain<T>::TLS::get()->m_as;
+    return retain<T>::s_current->m_as;
 }

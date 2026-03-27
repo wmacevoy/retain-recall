@@ -19,3 +19,13 @@
 *.exe
 *.out
 *.app
+
+# CMake
+build/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+
+# Editor / OS
+.DS_Store
+*~

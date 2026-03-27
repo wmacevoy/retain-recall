@@ -1,127 +1,103 @@
-#include <assert.h>
+#include <cassert>
 #include <iostream>
 #include <string>
 #include <sstream>
-#include <math.h>
-#include <stdlib.h>
-#include <unistd.h>
-
-#include "thread.h"
-
-// #define RETAIN_SINGLE_THREADED
+#include <cstdlib>
+#include <thread>
+#include <chrono>
 
 #include "retain.hpp"
 
-using namespace std;
-
 int x[100];
 
-
-class Test : public Thread
+class Test
 {
 public:
-  int id;
-  ostringstream out;
+    int id;
+    std::ostringstream out;
 
-  Test(int _id) : id(_id) {}
+    Test(int _id) : id(_id) {}
 
-  void state()
-  {
-    out << id << ": ";
-    for (retain<int>::iterator i = retain<int>::begin(); i!=retain<int>::end(); ++i) {
-      int *p=&(*i);
-      if (p != 0) {
-	out << "[" << p-x << "]";
-      } else {
-	out << "[null]";
-      }
+    void state()
+    {
+        out << id << ": ";
+        for (retain<int>::iterator i = retain<int>::begin();
+             i != retain<int>::end(); ++i) {
+            int *p = &(*i);
+            if (p != nullptr) {
+                out << "[" << p - x << "]";
+            } else {
+                out << "[null]";
+            }
+        }
+        if (retained<int>()) {
+            if (recall<int>() != nullptr) {
+                out << "@" << (recall<int>() - x);
+            } else {
+                out << "@null";
+            }
+        }
+        out << std::endl;
+        std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 10));
     }
-    if (retained<int>()) { 
-      if (recall<int>() != 0) {
-	out << "@" << (recall<int>()-x);
-      } else {
-	out << "@null";
-      }
+
+    void run()
+    {
+        state();
+        { retain<int> as(&x[id+0]); state();
+            { retain<int> as(&x[id+1]); state(); }
+            { retain<int> as_if(&x[id+2], true); state();
+                { retain<int> as(&x[id+3]); state(); }
+                { retain<int> as(&x[id+4]); state(); }
+                state();
+            }
+            { retain<int> as_if(&x[id+5], false); state();
+                { retain<int> as(&x[id+6]); state(); }
+                { retain<int> as(&x[id+7]); state(); }
+                state();
+            }
+        }
     }
-    out << endl;
-#ifdef _WIN32
-	Sleep(rand()%10);
-#else
-    usleep(1000*(rand()%10));
-#endif
-  }
-  
-  void run()
-  { state();
-    { retain<int> as(&x[id+0]); state();
-      { retain<int> as(&x[id+1]); state(); }
-      { retain<int> as_if(&x[id+2],true); state(); 
-	{ retain<int> as(&x[id+3]); state(); }
-	{ retain<int> as(&x[id+4]); state(); }
-	state();
-      }
-      { retain<int> as_if(&x[id+5],false); state(); 
-	{ retain<int> as(&x[id+6]); state(); }
-	{ retain<int> as(&x[id+7]); state(); }
-	state();
-      }
-    }
-  }
 };
-  
-string test()
+
+std::string test()
 {
-  Test* tests[10];
-  int n=10;
+    Test* tests[10];
+    int n = 10;
 
-  for (int k=0; k<n; ++k) {
-    tests[k]=new Test(10*k);
-  }
-  
-#ifdef RETAIN_SINGLE_THREADED
-  for (int k=0; k<n; ++k) {
-    tests[k]->run();
-  }
-#else
-  for (int k=1; k<n; ++k) {
-    tests[k]->start();
-  }
-  tests[0]->run();
-  for (int k=1; k<n; ++k) {
-    if (k > 0) tests[k]->join();
-  }
-#endif
+    for (int k = 0; k < n; ++k) {
+        tests[k] = new Test(10 * k);
+    }
 
-  string ans;
-  for (int k=0; k<n; ++k) {
-    ans += tests[k]->out.str();
-  }
+    std::thread threads[9];
+    for (int k = 1; k < n; ++k) {
+        threads[k-1] = std::thread([&, k]() { tests[k]->run(); });
+    }
+    tests[0]->run();
+    for (int k = 1; k < n; ++k) {
+        threads[k-1].join();
+    }
 
-  for (int k=0; k<n; ++k) {
-    delete tests[k];
-  }
+    std::string ans;
+    for (int k = 0; k < n; ++k) {
+        ans += tests[k]->out.str();
+    }
 
-  return ans;
+    for (int k = 0; k < n; ++k) {
+        delete tests[k];
+    }
+
+    return ans;
 }
 
 int main()
 {
+    std::cout << "std::thread (thread_local)" << std::endl;
 
-#ifdef RETAIN_SINGLE_THREADED
-  cout << "single threaded" << endl;
-#else
-#ifdef _WIN32
-  cout << "win32 threads" << endl;
-#else
-  cout << "posix threads" << endl;
-#endif
-#endif
+    std::string ans = test();
+    std::cout << ans << std::endl;
 
-  string ans=test();
-  cout << ans << endl;
-
-  for (int i=0; i<100; ++i) {
-    assert(test() == ans);
-  }
+    for (int i = 0; i < 100; ++i) {
+        assert(test() == ans);
+    }
 }
-
