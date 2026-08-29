@@ -226,8 +226,9 @@ void swap(size_t i, size_t j)
 /* Sort anything Sortable with the C sort that cannot take a context. */
 static void sort_sortable(Sortable *s)
 {
-    RETAIN(Sortable, s);
+    RETAIN_BEGIN(Sortable, s, guard);
     sort(0, Sortable_size(s));
+    RETAIN_END(guard);
 }
 
 /*
@@ -237,10 +238,11 @@ static void sort_sortable(Sortable *s)
 */
 static void sort_nested(Sortable *outer, Sortable *inner)
 {
-    RETAIN(Sortable, outer);
+    RETAIN_BEGIN(Sortable, outer, guard);
     sort_sortable(inner);
     assert(RECALL(Sortable) == outer && "outer context restored");
     sort(0, Sortable_size(outer));
+    RETAIN_END(guard);
 }
 
 /*

@@ -312,17 +312,58 @@ RETAIN_UNUSED static void Retain_tls_set(Retain_Tls *tls, void *value)
 /* The one definition of the head slot.  Exactly one .c per program. */
 #define RETAIN_DEFINE(T) RETAIN_STORAGE_DEFINE(T)
 
+/*
+  Scope-bound retain, in two spellings.
+  =====================================
+
+  RETAIN_BEGIN / RETAIN_END is the portable pair.  You write the braces:
+
+      { RETAIN_BEGIN(Sortable, s, guard);
+        ...
+        RETAIN_END(guard); }
+
+  Writing them yourself is what keeps the call site balanced at the token
+  level, so indenters, clang-format, brace matching and folding all behave --
+  a macro that opens a brace its partner closes defeats every one of them.
+  It also puts the end of retention where you can see it, at a brace you
+  wrote, rather than wherever the macro chose to put it.
+
+  Underneath, the two arms differ and the guarantee does not.  BEGIN opens a
+  block; END closes it, having first run the pop -- via the cleanup attribute
+  on one arm and a __finally on the other.  Either way the frame is popped
+  however the block is left: falling off the end, break, goto, or an early
+  return.  That last one is the whole point -- it is the case a hand-written
+  push/pop pair gets wrong, and the case a for-loop scope macro silently
+  skips.
+
+  BEGIN opening a block is what makes the pairing mandatory rather than
+  advisory.  Omit the END and the brace never closes; write an END with no
+  BEGIN and its label is undeclared.  Both are compile errors on every
+  compiler, so a missing END cannot reach the MSVC build as a surprise.  It
+  also forces statement context: neither half is usable at file scope.
+
+  A plain brace, deliberately, and not do { } while (0).  Both force the
+  pairing, but do{}while(0) also captures a break or continue meant for an
+  enclosing loop -- silently, with no diagnostic, which is a far worse bug
+  than the one it prevents.  check_break_reaches_enclosing_loop in
+  retain_test.c pins that down.
+
+  Because BEGIN opens a block, a variable declared between BEGIN and END is
+  scoped to it.  That is not a quirk of the cleanup arm -- MSVC's __try
+  scopes it the same way -- so both arms agree, and code that compiles on
+  one compiles on the other.
+
+  `label` names the frame.  It makes each END pair unambiguously with its
+  BEGIN, and stops nested retains from shadowing one another.
+
+  RETAIN / RETAIN_IF is the shorter spelling, needing no END and no label,
+  and it is available only where the cleanup attribute is.  Use it when the
+  code does not have to build under MSVC.
+*/
+
 #ifdef RETAIN_HAVE_CLEANUP
 
-/*
-  Publish `value` for the rest of the enclosing block.
-
-  The frame is an ordinary automatic variable, so it is popped however the
-  block is left -- falling off the end, `break`, `goto`, or an early
-  `return`.  That last one is the whole point: it is the case a matched
-  push/pop pair gets wrong.
-*/
-#  define RETAIN(T, value) RETAIN_IF(T, value, 1)
+#  define RETAIN_BEGIN(T, value, label) RETAIN_BEGIN_IF(T, value, 1, label)
 
 /*
   Publish only if `use`, without changing the shape of the calling code --
@@ -330,6 +371,19 @@ RETAIN_UNUSED static void Retain_tls_set(Retain_Tls *tls, void *value)
   nothing is pushed, so the value is invisible to RECALL and to
   RETAIN_FOREACH, and deeper frames see the retain this one encloses.
 */
+#  define RETAIN_BEGIN_IF(T, value, use, label)                                \
+      {                                                                        \
+          Retain_##T##_Frame label                                             \
+              __attribute__((cleanup(Retain_##T##_unlink)));                   \
+          Retain_##T##_link(&label, (value), (use))
+
+#  define RETAIN_END(label) ((void)&(label)); }
+
+/* Shorthand: no label, no END, scoped to the enclosing block.  Opens no
+   block of its own, so it cannot enforce anything -- and cannot be given a
+   portable spelling either. */
+#  define RETAIN(T, value) RETAIN_IF(T, value, 1)
+
 #  define RETAIN_IF(T, value, use)                                             \
       RETAIN_IF_(T, value, use, RETAIN_UNIQUE(retain_frame_))
 
@@ -341,18 +395,36 @@ RETAIN_UNUSED static void Retain_tls_set(Retain_Tls *tls, void *value)
 #else
 
 /*
-  No __attribute__((cleanup)) -- MSVC, most notably.  Everything else in this
-  header still works: call Retain_T_link and Retain_T_unlink in a matched
-  pair, and own the fact that an early return between them leaks a frame.
+  MSVC: no cleanup attribute, so SEH stands in for it.  __finally is a
+  termination handler, which runs when the __try block is left by any route
+  -- fall-through, return, goto, or a break or continue aimed at an enclosing
+  loop.  That is the same guarantee the cleanup arm gives.
 
-  RETAIN itself cannot be provided, so rather than leaving it undefined and
-  letting the compiler say only "RETAIN is not a function", it expands to an
-  identifier that names the problem.
+  RETAIN_END takes only a label, so it cannot name Retain_T_unlink itself.
+  The frame's unlink is captured in a local beside it instead, which costs
+  one pointer of stack and keeps the calling shape identical on both arms.
 */
+#  define RETAIN_BEGIN(T, value, label) RETAIN_BEGIN_IF(T, value, 1, label)
+
+#  define RETAIN_BEGIN_IF(T, value, use, label)                                \
+      {                                                                        \
+          Retain_##T##_Frame label;                                            \
+          void (*label##_unlink)(Retain_##T##_Frame *) =                       \
+              Retain_##T##_unlink;                                             \
+          Retain_##T##_link(&label, (value), (use));                           \
+          __try {
+
+#  define RETAIN_END(label)                                                    \
+          } __finally { label##_unlink(&label); } }
+
+/* The short spelling has no equivalent here: there is no way to attach an
+   action to the end of a scope without wrapping the scope.  Rather than
+   leaving RETAIN undefined and letting the compiler say only "RETAIN is not
+   a function", it expands to an identifier that names the problem. */
 #  define RETAIN(T, value)                                                     \
-      RETAIN_needs_the_cleanup_attribute__use_Retain_link_and_unlink_instead
+      RETAIN_needs_cleanup_attribute__use_RETAIN_BEGIN_and_RETAIN_END_instead
 #  define RETAIN_IF(T, value, use)                                             \
-      RETAIN_needs_the_cleanup_attribute__use_Retain_link_and_unlink_instead
+      RETAIN_needs_cleanup_attribute__use_RETAIN_BEGIN_and_RETAIN_END_instead
 
 #endif /* RETAIN_HAVE_CLEANUP */
 
