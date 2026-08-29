@@ -6,6 +6,18 @@ A C++17 header-only library implementing **retain/recall semantics** — a
 pattern for accessing data in ancestor stack frames through a thread-local
 stack, without passing it as explicit parameters.
 
+The same pattern is ported to four other languages under [`ports/`](ports/),
+and all five are held to one test: each prints a byte-identical 110-line
+transcript, on every push.
+
+| | library | covered by CI |
+|---|---|---|
+| **C++** — home base | [`include/retain.hpp`](include/retain.hpp) | Linux x64 · Linux arm64 · macOS · Windows/MSVC |
+| **C** | [`ports/c/retain.h`](ports/c/retain.h) | the above · Windows/mingw — each across three thread-local storage backends |
+| **Java** | [`ports/java/retained/Retain.java`](ports/java/retained/Retain.java) | JDK 17 · 21, on Linux · macOS · Windows |
+| **Python** | [`ports/python/retain.py`](ports/python/retain.py) | 3.9 · 3.13, on Linux · macOS · Windows |
+| **Rust** | [`ports/rust/retain.rs`](ports/rust/retain.rs) | Linux · macOS · Windows |
+
 ## The idea
 
 Declare a `retain<T>` as a local variable.  It pushes a pointer onto a
@@ -107,12 +119,12 @@ retain<T>::end();               // past-the-end sentinel
 The same pattern in four other languages, under [`ports/`](ports/). C++ is home
 base; each of these is a translation, not a rewrite.
 
-| Language | Library | Scope bound by | Per-type stack declared by |
-|----------|---------|----------------|----------------------------|
-| [C](ports/c/) | [`retain.h`](ports/c/retain.h) | `__attribute__((cleanup))` | `RETAIN_DECLARE(T)` |
-| [Java](ports/java/) | [`Retain.java`](ports/java/retained/Retain.java) | try-with-resources | a `static final Retain<T>` field |
-| [Python](ports/python/) | [`retain.py`](ports/python/retain.py) | the `with` statement | a module-level `Retain(...)` |
-| [Rust](ports/rust/) | [`retain.rs`](ports/rust/retain.rs) | the closure passed to `retain` | the `retain!` macro |
+| Language | Scope bound by | Per-type stack declared by |
+|----------|----------------|----------------------------|
+| [C](ports/c/) | a brace, via `cleanup` or `__try`/`__finally` | `RETAIN_DECLARE(T)` |
+| [Java](ports/java/) | try-with-resources | a `static final Retain<T>` field |
+| [Python](ports/python/) | the `with` statement | a module-level `Retain(...)` |
+| [Rust](ports/rust/) | the closure passed to `retain` | the `retain!` macro |
 
 The last column is the same concession four times over. Only a C++ template
 synthesizes a `static` per instantiation, so `retain<T>::s_current` has no
