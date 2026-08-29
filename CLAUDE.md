@@ -164,8 +164,10 @@ test-all`:
 | `-DRETAIN_SINGLE_THREADED` | a plain static | freestanding, embedded, wasm — no threads by construction, so no transcript either |
 
 Verified with no warnings under `-Wall -Wextra -Wpedantic` on clang/macOS and gcc/Linux
-(both threaded backends reproduce the transcript), and cross-compiled clean for Win32 with
-mingw-w64. **The Win32 paths compile but have never been run** — no Windows host here.
+(both threaded backends reproduce the transcript). The `c-windows` CI job runs all three
+backends under MSYS2/mingw on a real Windows host, so `TlsAlloc`, `InitOnceExecuteOnce`
+and `CreateThread` are executed, not merely compiled. MSVC remains unsupported for the C
+port — `RETAIN` needs `__attribute__((cleanup))`, and `retain.h` says so at the use site.
 
 **Java — `ports/java/retained/Retain.java`, `RetainTest.java`.** A per-type thread-local stack.
 Each retained type declares one `static final Retain<T>` field, written by hand because
