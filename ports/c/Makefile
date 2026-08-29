@@ -13,7 +13,14 @@ CC ?= cc
 BACKEND ?=
 CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic -O2
 CPPFLAGS = -I. -I../../include $(BACKEND)
-LDLIBS = -lpthread
+
+# On Windows the thread shim uses CreateThread, so there is no pthread to
+# link.  MSYS2/mingw sets OS=Windows_NT, which is how this tells them apart.
+ifeq ($(OS),Windows_NT)
+  LDLIBS =
+else
+  LDLIBS = -lpthread
+endif
 
 BIN = tmp
 

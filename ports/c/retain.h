@@ -338,6 +338,22 @@ RETAIN_UNUSED static void Retain_tls_set(Retain_Tls *tls, void *value)
           __attribute__((cleanup(Retain_##T##_unlink)));                       \
       Retain_##T##_link(&frame, (value), (use))
 
+#else
+
+/*
+  No __attribute__((cleanup)) -- MSVC, most notably.  Everything else in this
+  header still works: call Retain_T_link and Retain_T_unlink in a matched
+  pair, and own the fact that an early return between them leaks a frame.
+
+  RETAIN itself cannot be provided, so rather than leaving it undefined and
+  letting the compiler say only "RETAIN is not a function", it expands to an
+  identifier that names the problem.
+*/
+#  define RETAIN(T, value)                                                     \
+      RETAIN_needs_the_cleanup_attribute__use_Retain_link_and_unlink_instead
+#  define RETAIN_IF(T, value, use)                                             \
+      RETAIN_needs_the_cleanup_attribute__use_Retain_link_and_unlink_instead
+
 #endif /* RETAIN_HAVE_CLEANUP */
 
 /* Is anything retained for T on this thread? */

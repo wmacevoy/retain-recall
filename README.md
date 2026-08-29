@@ -1,5 +1,7 @@
 # retain/recall
 
+[![build-test](https://github.com/wmacevoy/retain-recall/actions/workflows/build-test.yml/badge.svg)](https://github.com/wmacevoy/retain-recall/actions/workflows/build-test.yml)
+
 A C++17 header-only library implementing **retain/recall semantics** — a
 pattern for accessing data in ancestor stack frames through a thread-local
 stack, without passing it as explicit parameters.
@@ -131,6 +133,14 @@ cargo run --release --manifest-path ports/rust/Cargo.toml --bin retain_test
 python3 ports/python/retain_test.py
 javac -d /tmp/classes ports/java/retained/*.java && java -cp /tmp/classes retained.RetainTest
 ```
+
+CI runs all of this on every push — see
+[`.github/workflows/build-test.yml`](.github/workflows/build-test.yml). C++ on
+Linux (x64 and arm64), macOS and Windows/MSVC; the C port across all three
+storage backends on Linux, macOS and Windows/mingw, warning-free under
+`-Werror`; Java 17 and 21, Python 3.9 and 3.13, and Rust on all three
+platforms; the cross-language transcript diff; and Thread-, Address- and
+UndefinedBehaviorSanitizer over the C++ and C tests.
 
 ### What each language had to change
 

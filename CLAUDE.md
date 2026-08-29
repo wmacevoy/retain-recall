@@ -217,6 +217,26 @@ The header comments in each port carry the reasoning behind its divergences -- R
 `SAFETY` blocks, C's account of `cleanup` and the restored TLS layer. Preserve them; they
 are the part that cannot be recovered by reading the code.
 
+### CI
+
+`.github/workflows/build-test.yml`, 33 runs. Things worth knowing before editing it:
+
+- **Debug builds are deliberate.** Every test here is an `assert`, and a Release build
+  defines `NDEBUG` and compiles them all away. The Rust release profile keeps
+  `debug-assertions = true` for the same reason.
+- **`-Werror` applies to the C port only.** `src/midi2.cpp` still warns under
+  `-Wall -Wextra` (`-Wexceptions`: its destructor throws on purpose, which is what makes
+  `midi2` abort), so C++ is built without it.
+- **The `c-windows` job is the valuable one.** It runs under MSYS2/mingw, so it actually
+  executes the `_WIN32` paths — `TlsAlloc`, `InitOnceExecuteOnce`, `CreateThread` — rather
+  than only compiling them. MSVC is deliberately absent: `RETAIN` needs
+  `__attribute__((cleanup))`, and `retain.h` emits a named diagnostic there instead.
+- **Backends must live in the base matrix**, not in `include`. An `include` entry that only
+  adds new keys does not cross-multiply; it collapses to the last entry. The `include`
+  block here keys on an existing `backend` value, which only attaches a display name.
+- **`TSAN_OPTIONS: halt_on_error=1`** is required — ThreadSanitizer reports races but exits
+  0 by default, so without it a race would pass CI silently.
+
 ### Repository stragglers
 
 `bin/`, `lib/`, and `tmp/*.o` are untracked leftovers from a pre-CMake Makefile build
