@@ -1,0 +1,19 @@
+# Flat layout on purpose: the port is two files, and the repo keeps its
+# sources next to each other rather than under a src/ tree.
+[package]
+name = "retain"
+version = "1.0.0"
+edition = "2021"
+description = "retain/recall semantics over a thread-local stack"
+license = "MIT"
+
+[lib]
+name = "retain"
+path = "retain.rs"
+
+[[bin]]
+name = "retain_test"
+path = "retain_test.rs"
+
+[profile.release]
+debug-assertions = true    # the test's asserts are the test

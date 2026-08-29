@@ -6,12 +6,8 @@
 // A retain<T> object is an automatic (stack-scoped) variable that publishes
 // a pointer to T on a thread-local stack.  recall<T>() retrieves the most
 // recently retained T* from the current thread.  When the retain<T> goes
-// out of scope its destructor pops the stack — classic RAII tied to the
-// lifetime of an auto variable.
-//
-// Before C++11 repurposed the keyword, "auto" was the storage-class
-// specifier for automatic (stack) variables — the very lifetime model
-// that makes retain/recall work.  That meaning is worth remembering.
+// out of scope its destructor pops the stack — classic RAII, tied to the
+// lifetime of the enclosing block.
 //
 
 template <typename T>

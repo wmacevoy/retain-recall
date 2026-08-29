@@ -29,3 +29,13 @@ cmake_install.cmake
 # Editor / OS
 .DS_Store
 *~
+
+# Rust port
+ports/rust/target/
+*.rlib
+
+# Python port
+__pycache__/
+
+# C port
+ports/c/tmp/
