@@ -1,5 +1,7 @@
 # retain/recall
 
+[![build-test](https://github.com/wmacevoy/retain-recall/actions/workflows/build-test.yml/badge.svg)](https://github.com/wmacevoy/retain-recall/actions/workflows/build-test.yml)
+
 A C++17 header-only library implementing **retain/recall semantics** — a
 pattern for accessing data in ancestor stack frames through a thread-local
 stack, without passing it as explicit parameters.
@@ -29,21 +31,6 @@ int main() {
 ```
 
 The entire mechanism lives in a single header: [`include/retain.hpp`](include/retain.hpp).
-
-## On the `auto` keyword
-
-Before C++11, the `auto` storage-class specifier declared a variable with
-**automatic storage duration** — allocated on entry to its enclosing scope,
-destroyed on exit.  That is exactly the lifetime model that makes
-retain/recall work: a `retain<T>` object *is* an automatic variable in the
-original sense.  It pushes on construction, pops on destruction, and its
-lifetime is governed entirely by the enclosing block.
-
-C++11 repurposed `auto` for type inference, erasing the keyword that once
-named this fundamental concept.  The stack discipline that underpins RAII —
-and this library — became implicit rather than explicit.  There is no longer
-a keyword that says "this variable lives on the stack."  You just have to
-know.
 
 ## How it works
 
@@ -114,6 +101,78 @@ T*& recall<T>();                // get (mutable) pointer to top of T stack
 retain<T>::begin();             // iterator to top of stack
 retain<T>::end();               // past-the-end sentinel
 ```
+
+## Ports
+
+The same pattern in four other languages, under [`ports/`](ports/). C++ is home
+base; each of these is a translation, not a rewrite.
+
+| Language | Library | Scope bound by | Per-type stack declared by |
+|----------|---------|----------------|----------------------------|
+| [C](ports/c/) | [`retain.h`](ports/c/retain.h) | `__attribute__((cleanup))` | `RETAIN_DECLARE(T)` |
+| [Java](ports/java/) | [`Retain.java`](ports/java/retained/Retain.java) | try-with-resources | a `static final Retain<T>` field |
+| [Python](ports/python/) | [`retain.py`](ports/python/retain.py) | the `with` statement | a module-level `Retain(...)` |
+| [Rust](ports/rust/) | [`retain.rs`](ports/rust/retain.rs) | the closure passed to `retain` | the `retain!` macro |
+
+The last column is the same concession four times over. Only a C++ template
+synthesizes a `static` per instantiation, so `retain<T>::s_current` has no
+equivalent anywhere else and the per-type slot gets written out by hand.
+
+### The transcript is the test
+
+Every port runs [`src/test.cpp`](src/test.cpp) structurally — ten threads, eight
+levels of nesting, a hundred repetitions — and prints a byte-identical 110-line
+transcript. Randomized sleeps vary the interleaving, so identical output across
+runs *and* across languages is what demonstrates the stacks are thread-confined.
+
+All four run from the repository root:
+
+```sh
+make -C ports/c test
+cargo run --release --manifest-path ports/rust/Cargo.toml --bin retain_test
+python3 ports/python/retain_test.py
+javac -d /tmp/classes ports/java/retained/*.java && java -cp /tmp/classes retained.RetainTest
+```
+
+CI runs all of this on every push — see
+[`.github/workflows/build-test.yml`](.github/workflows/build-test.yml). C++ on
+Linux (x64 and arm64), macOS and Windows/MSVC; the C port across all three
+storage backends on Linux, macOS and Windows/mingw, warning-free under
+`-Werror`; Java 17 and 21, Python 3.9 and 3.13, and Rust on all three
+platforms; the cross-language transcript diff; and Thread-, Address- and
+UndefinedBehaviorSanitizer over the C++ and C tests.
+
+### What each language had to change
+
+**C** has the strongest claim on the pattern, because the C callback problem is
+what it was written for. [`ports/c/csort.c`](ports/c/csort.c) sorts a double
+array and a string array — one nested inside the other — through an untouched
+[`src/sort.c`](src/sort.c), which [`src/oldsort.c`](src/oldsort.c) shows can
+otherwise sort exactly one array forever. C has no destructors, so `RETAIN` is
+built on `__attribute__((cleanup))`, and no templates, so `RETAIN_DECLARE(T)`
+writes out the stack. It also gets something no other port does: `RECALL_REF(T)`
+is a `T**`, making C++'s assignable `T*& recall()` almost verbatim. C11's
+`_Thread_local` is the default, with the Win32 `TlsAlloc` / POSIX
+`pthread_key_create` layer and a no-TLS single-threaded backend still selectable
+— see [`ports/c/retain.h`](ports/c/retain.h).
+
+**Java** has no RAII, so a `Handle` is both the stack link and an
+`AutoCloseable`. [`Static.java`](ports/java/retained/Static.java) is the older
+port, kept for comparison: one `ThreadLocal` list shared by every type and
+filtered with `isAssignableFrom`, where `Retain.java` gives each type its own.
+
+**Python** keeps the stack in a `contextvars.ContextVar` rather than a
+`threading.local`. Threads behave the same either way, but each asyncio task
+runs in its own copy of the context, so a retain inside one coroutine is
+invisible to its siblings and survives an `await` intact — a property the C++
+version has no way to express.
+
+**Rust** could not keep the shape at all. Returning a `T*` that outlives the
+call is what the borrow checker exists to reject, and the true lifetime — until
+the retain that published it goes out of scope — is dynamic and cannot be
+written down. So the scope becomes a closure: `FACTS.retain(&facts, || ...)`
+owns the region and `recall` lends the reference to a callback instead of
+returning it.
 
 ## Publications
 

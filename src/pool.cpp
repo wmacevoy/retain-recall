@@ -8,7 +8,7 @@
 // setup
 //
 
-class Pooled;
+struct Pooled;
 
 struct Pool
 {
