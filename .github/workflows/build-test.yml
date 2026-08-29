@@ -87,6 +87,40 @@ jobs:
           BACKEND="${{ matrix.backend }}"
           CFLAGS="-std=c11 -Wall -Wextra -Wpedantic -Werror -O2"
 
+  # MSVC has no __attribute__((cleanup)), so RETAIN_BEGIN/RETAIN_END lower to
+  # __try/__finally here.  This job is what makes that a fact rather than a
+  # claim: check_early_return returns from inside the __try, and the
+  # transcript proves the frames still unwind in order.  It is also the only
+  # thing that ever compiles the _MSC_VER __declspec(thread) branch.
+  #
+  # No /WX: this is MSVC's first contact with the port and its warning set
+  # differs from gcc's.  /W4 makes them visible without failing the build.
+  c-msvc:
+    name: C windows-msvc ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: ['', '/DRETAIN_TLS_KEYS', '/DRETAIN_SINGLE_THREADED']
+        include:
+          - backend: ''
+            name: thread_local
+          - backend: '/DRETAIN_TLS_KEYS'
+            name: tls-keys
+          - backend: '/DRETAIN_SINGLE_THREADED'
+            name: single-threaded
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Build and run with cl.exe
+        shell: cmd
+        working-directory: ports/c
+        run: |
+          cl /nologo /std:c11 /W4 ${{ matrix.backend }} /I. retain_test.c thread.c /Fe:retain_test.exe || exit /b 1
+          retain_test.exe || exit /b 1
+          cl /nologo /std:c11 /W4 ${{ matrix.backend }} /I. /I..\..\include csort.c ..\..\src\sort.c /Fe:csort.exe || exit /b 1
+          csort.exe || exit /b 1
+
   java:
     name: Java ${{ matrix.java }} ${{ matrix.os }}
     strategy:

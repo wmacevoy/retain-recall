@@ -138,11 +138,26 @@ for a checked downcast.
 C lacks both things retain<T> is built from, and each has a stand-in. There are no
 templates, so `RETAIN_DECLARE(T)`/`RETAIN_DEFINE(T)` write out one stack per type — the
 same concession as Rust's macro and Java's hand-written field. There are no destructors,
-so `RETAIN(T, p)` is built on `__attribute__((cleanup))`, which is what gives C back the
-scope-bound half of automatic storage duration. That is why `run()` in `retain_test.c` is
-brace-for-brace the C++ original, and why `check_early_return` is the test that matters:
-a hand-written push/pop pair leaks on exactly that path. On MSVC, where `cleanup` does not
-exist, call `Retain_T_link`/`Retain_T_unlink` in a matched pair and own that risk.
+so scope-bound retention is `{ RETAIN_BEGIN(T, p, label); ... RETAIN_END(label); }`,
+lowering to `__attribute__((cleanup))` on GCC/Clang and `__try`/`__finally` on MSVC.
+`check_early_return` is the test that matters — a hand-written push/pop pair leaks on
+exactly that path — and it now covers both arms.
+
+Three deliberate choices in those macros, each with a test or a compile error behind it:
+
+- **The caller writes the outer braces.** That keeps the call site token-balanced, so
+  indenters, `clang-format` and brace matching are not defeated by a macro that opens a
+  brace its partner closes.
+- **`RETAIN_BEGIN` opens a block anyway.** That is what makes `RETAIN_END` mandatory
+  everywhere instead of only under MSVC, so a missing END is a local compile error rather
+  than a Windows-only surprise. It also makes both arms scope declarations identically.
+- **A plain brace, not `do { } while (0)`.** Both force the pairing; only `do`/`while`
+  swallows a `break` aimed at an enclosing loop, silently.
+  `check_break_reaches_enclosing_loop` pins this down.
+
+`RETAIN(T, p)` remains as GCC/Clang-only shorthand needing no label or END, covered by
+`check_shorthand`. It cannot be given a portable spelling: attaching an action to the end
+of a scope requires wrapping the scope.
 
 One thing C gets that no other port does: `RECALL_REF(T)` is a `T**`, so
 `*RECALL_REF(Language) = &SPANISH;` is C++'s assignable `T*& recall()` almost verbatim.
@@ -221,7 +236,7 @@ are the part that cannot be recovered by reading the code.
 
 ### CI
 
-`.github/workflows/build-test.yml`, 33 runs. Things worth knowing before editing it:
+`.github/workflows/build-test.yml`, 36 runs. Things worth knowing before editing it:
 
 - **Debug builds are deliberate.** Every test here is an `assert`, and a Release build
   defines `NDEBUG` and compiles them all away. The Rust release profile keeps
@@ -229,10 +244,15 @@ are the part that cannot be recovered by reading the code.
 - **`-Werror` applies to the C port only.** `src/midi2.cpp` still warns under
   `-Wall -Wextra` (`-Wexceptions`: its destructor throws on purpose, which is what makes
   `midi2` abort), so C++ is built without it.
-- **The `c-windows` job is the valuable one.** It runs under MSYS2/mingw, so it actually
-  executes the `_WIN32` paths — `TlsAlloc`, `InitOnceExecuteOnce`, `CreateThread` — rather
-  than only compiling them. MSVC is deliberately absent: `RETAIN` needs
-  `__attribute__((cleanup))`, and `retain.h` emits a named diagnostic there instead.
+- **Two separate Windows jobs, and they cover different things.** `c-windows` runs under
+  MSYS2/mingw, which is GCC, and so exercises the `_WIN32` runtime paths (`TlsAlloc`,
+  `InitOnceExecuteOnce`, `CreateThread`) with the cleanup attribute. `c-msvc` runs
+  `cl.exe`, which is the only thing that ever compiles the `_MSC_VER`
+  `__declspec(thread)` branch or the `__try`/`__finally` lowering of
+  `RETAIN_BEGIN`/`RETAIN_END`. Neither substitutes for the other.
+- **`c-msvc` runs `/W4` without `/WX`.** MSVC's warning set differs from gcc's and this is
+  the port's first contact with it; warnings are visible but not fatal. Tighten once it has
+  a clean history.
 - **Backends must live in the base matrix**, not in `include`. An `include` entry that only
   adds new keys does not cross-multiply; it collapses to the last entry. The `include`
   block here keys on an existing `backend` value, which only attaches a display name.

@@ -150,7 +150,18 @@ array and a string array — one nested inside the other — through an untouche
 [`src/sort.c`](src/sort.c), which [`src/oldsort.c`](src/oldsort.c) shows can
 otherwise sort exactly one array forever. C has no destructors, so `RETAIN` is
 built on `__attribute__((cleanup))`, and no templates, so `RETAIN_DECLARE(T)`
-writes out the stack. It also gets something no other port does: `RECALL_REF(T)`
+writes out the stack.
+
+Scope is spelled `{ RETAIN_BEGIN(T, p, label); ... RETAIN_END(label); }`. You
+write the braces, which keeps the call site balanced for indenters and brace
+matching; `RETAIN_BEGIN` opens a block of its own, which makes the `RETAIN_END`
+mandatory on every compiler rather than only on the one that needs it. It lowers
+to the cleanup attribute under GCC/Clang and to `__try`/`__finally` under MSVC,
+and both pop on an early `return`. A plain brace rather than `do { } while (0)`,
+so a `break` still reaches the enclosing loop. Where MSVC is not a concern, the
+shorter `RETAIN(T, p)` needs neither label nor `END`.
+
+C also gets something no other port does: `RECALL_REF(T)`
 is a `T**`, making C++'s assignable `T*& recall()` almost verbatim. C11's
 `_Thread_local` is the default, with the Win32 `TlsAlloc` / POSIX
 `pthread_key_create` layer and a no-TLS single-threaded backend still selectable

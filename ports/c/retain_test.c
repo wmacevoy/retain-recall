@@ -90,18 +90,21 @@ static void run(void *argument)
     int id = me->id;
 
     state(me);
-    { RETAIN(int, &x[id + 0]); state(me);
-        { RETAIN(int, &x[id + 1]); state(me); }
-        { RETAIN_IF(int, &x[id + 2], 1); state(me);
-            { RETAIN(int, &x[id + 3]); state(me); }
-            { RETAIN(int, &x[id + 4]); state(me); }
+    { RETAIN_BEGIN(int, &x[id + 0], a0); state(me);
+        { RETAIN_BEGIN(int, &x[id + 1], a1); state(me); RETAIN_END(a1); }
+        { RETAIN_BEGIN_IF(int, &x[id + 2], 1, a2); state(me);
+            { RETAIN_BEGIN(int, &x[id + 3], a3); state(me); RETAIN_END(a3); }
+            { RETAIN_BEGIN(int, &x[id + 4], a4); state(me); RETAIN_END(a4); }
             state(me);
+            RETAIN_END(a2);
         }
-        { RETAIN_IF(int, &x[id + 5], 0); state(me);
-            { RETAIN(int, &x[id + 6]); state(me); }
-            { RETAIN(int, &x[id + 7]); state(me); }
+        { RETAIN_BEGIN_IF(int, &x[id + 5], 0, a5); state(me);
+            { RETAIN_BEGIN(int, &x[id + 6], a6); state(me); RETAIN_END(a6); }
+            { RETAIN_BEGIN(int, &x[id + 7], a7); state(me); RETAIN_END(a7); }
             state(me);
+            RETAIN_END(a5);
         }
+        RETAIN_END(a0);
     }
 }
 
@@ -109,6 +112,7 @@ static void test(char *answer, size_t capacity)
 {
     Worker workers[10];
     Thread threads[10];
+    size_t total;
     int k;
 
     for (k = 0; k < 10; ++k) {
@@ -125,9 +129,11 @@ static void test(char *answer, size_t capacity)
     for (k = 1; k < 10; ++k) Thread_join(&threads[k]);
 
     answer[0] = '\0';
+    total = 0;
     for (k = 0; k < 10; ++k) {
-        assert(strlen(answer) + workers[k].length + 1 < capacity);
-        strcat(answer, workers[k].out);
+        assert(total + workers[k].length + 1 < capacity);
+        memcpy(answer + total, workers[k].out, workers[k].length + 1);
+        total += workers[k].length;
     }
 }
 
@@ -142,12 +148,14 @@ static void check_scope(void)
 {
     int outer = 1, inner = 2;
     assert(!RETAINED(int) && "empty to start");
-    { RETAIN(int, &outer);
+    { RETAIN_BEGIN(int, &outer, a);
         assert(*RECALL(int) == 1 && "recall outer");
-        { RETAIN(int, &inner);
+        { RETAIN_BEGIN(int, &inner, b);
             assert(*RECALL(int) == 2 && "recall inner");
+            RETAIN_END(b);
         }
         assert(*RECALL(int) == 1 && "inner popped");
+        RETAIN_END(a);
     }
     assert(!RETAINED(int) && "outer popped");
 }
@@ -159,8 +167,10 @@ static void check_scope(void)
 */
 static int early_return(int *value)
 {
-    RETAIN(int, value);
-    if (*value > 0) return 1;
+    { RETAIN_BEGIN(int, value, guard);
+        if (*value > 0) return 1;      /* no pop written, and none needed */
+        RETAIN_END(guard);
+    }
     return 0;
 }
 
@@ -176,16 +186,18 @@ static void check_conditional(void)
 {
     int outer = 1, skipped = 2;
     int seen = 0;
-    { RETAIN(int, &outer);
-        { RETAIN_IF(int, &skipped, 0);
+    { RETAIN_BEGIN(int, &outer, a);
+        { RETAIN_BEGIN_IF(int, &skipped, 0, b);
             assert(*RECALL(int) == 1 && "skipped retain is not recalled");
             RETAIN_FOREACH(int, frame) {
                 assert(*frame->value == 1 && "only outer is walked");
                 ++seen;
             }
             assert(seen == 1 && "skipped retain is not walked");
+            RETAIN_END(b);
         }
         assert(*RECALL(int) == 1 && "leaving a skipped retain pops nothing");
+        RETAIN_END(a);
     }
 }
 
@@ -195,15 +207,18 @@ static void check_cascade(void)
     int a = 1, b = 2, c = 3;
     int walked[4];
     int n = 0;
-    { RETAIN(int, &a);
-        { RETAIN(int, &b);
-            { RETAIN(int, &c);
+    { RETAIN_BEGIN(int, &a, ga);
+        { RETAIN_BEGIN(int, &b, gb);
+            { RETAIN_BEGIN(int, &c, gc);
                 RETAIN_FOREACH(int, frame) walked[n++] = *frame->value;
                 assert(n == 3 && walked[0] == 3 && walked[1] == 2 &&
                        walked[2] == 1 && "innermost to outermost");
                 assert(RETAIN_TOP(int)->previous->value == &b && "enclosing frame");
+                RETAIN_END(gc);
             }
+            RETAIN_END(gb);
         }
+        RETAIN_END(ga);
     }
 }
 
@@ -216,14 +231,63 @@ static void check_cascade(void)
 static void check_rebind(void)
 {
     int english = 1, spanish = 2;
-    { RETAIN(int, &english);
-        { RETAIN(int, &english);
+    { RETAIN_BEGIN(int, &english, a);
+        { RETAIN_BEGIN(int, &english, b);
             *RECALL_REF(int) = &spanish;
             assert(*RECALL(int) == 2 && "innermost rebound");
+            RETAIN_END(b);
         }
         assert(*RECALL(int) == 1 && "enclosing retain untouched");
+        RETAIN_END(a);
     }
 }
+
+/*
+  RETAIN_BEGIN opens a plain block, not a do{}while(0).  Both would force a
+  matching RETAIN_END, but do{}while(0) also captures a break or continue
+  meant for an enclosing loop -- silently, with no diagnostic.  A brace does
+  not, so this loop exits on the third pass rather than running all five.
+*/
+static void check_break_reaches_enclosing_loop(void)
+{
+    int value = 1;
+    int iterations = 0;
+    int i;
+
+    for (i = 0; i < 5; ++i) {
+        ++iterations;
+        { RETAIN_BEGIN(int, &value, guard);
+            if (i == 2) break;
+            RETAIN_END(guard);
+        }
+    }
+    assert(iterations == 3 && "break reached the enclosing for loop");
+    assert(!RETAINED(int) && "and the retain still popped on the way out");
+}
+
+#ifdef RETAIN_HAVE_CLEANUP
+/*
+  The short spelling, which needs no label and no END because the cleanup
+  attribute fires at the enclosing brace on its own.  Everything else in this
+  file uses RETAIN_BEGIN/RETAIN_END so that it also builds under MSVC; this
+  check keeps the shorthand covered where it exists.
+*/
+static void check_shorthand(void)
+{
+    int outer = 1, inner = 2;
+    { RETAIN(int, &outer);
+        assert(*RECALL(int) == 1 && "shorthand recall");
+        { RETAIN(int, &inner);
+            assert(*RECALL(int) == 2 && "shorthand nests");
+        }
+        assert(*RECALL(int) == 1 && "shorthand popped at the brace");
+        { RETAIN_IF(int, &inner, 0);
+            assert(*RECALL(int) == 1 && "shorthand conditional skips");
+        }
+    }
+    assert(!RETAINED(int) && "shorthand drained");
+}
+#endif
 
 #ifndef RETAIN_SINGLE_THREADED
 static void observe(void *argument)
@@ -237,9 +301,10 @@ static void check_threads_isolated(void)
     int mine = 1;
     int seen = -1;
     Thread thread;
-    { RETAIN(int, &mine);
+    { RETAIN_BEGIN(int, &mine, guard);
         Thread_start(&thread, observe, &seen);
         Thread_join(&thread);
+        RETAIN_END(guard);
     }
     assert(seen == 0 && "a new thread starts with an empty stack");
 }
@@ -258,6 +323,10 @@ int main(void)
     check_conditional();
     check_cascade();
     check_rebind();
+    check_break_reaches_enclosing_loop();
+#ifdef RETAIN_HAVE_CLEANUP
+    check_shorthand();
+#endif
 #ifndef RETAIN_SINGLE_THREADED
     check_threads_isolated();
 #endif
